@@ -5,6 +5,11 @@ from datetime import datetime
 import numpy as np
 import inspect
 import socket
+import asyncio
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
+
 
 # i1, i2, i4, i8 int
 # u1, u2, u4, u8 unsigned int
@@ -46,12 +51,13 @@ class Buffer:
     def read_all(self) -> str:
         while b'\0' not in self.buffer:
             data = self.sock.recv(1024)
+            # print(data, b'\0' not in self.buffer)
             if not data:
                 # print("None")
                 return None
             self.buffer += data
             # print("buffer", self.buffer)
-            break
+            # break
         line, sep, self.buffer = self.buffer.partition(b'\0')
         return line.decode()
 
@@ -80,11 +86,15 @@ class Session:
         self._control_ref_dict = {}
         self._control_ref_name_list = []
         self._data_end_char = b"\r\n"
+        self._data_end_str = self._data_end_char.decode()
+
         self._buffer = Buffer(None)
 
-        delay = self.check_response() * 1000
-        print("LVLinkpy session constructed. Estimated latency is %.2f ms" % delay)
-        self.update_session()
+        r = self.check_response()
+        if r is not None:
+            delay = r * 1000
+            print("LVLinkpy session constructed. Estimated latency is %.2f ms" % delay)
+            self.update_session()
 
     def print_control_info(self):
         print("===================================")
@@ -133,7 +143,7 @@ class Session:
 
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.connect(("127.0.0.1", self.port))
-            s.send(b"set=" + data_to_send.encode() + self._data_end_char)
+            s.send(b"set=" + data_to_send.replace(self._data_end_str, "").encode() + self._data_end_char)
             self._buffer.sock = s
             msg = self._buffer.read_all()
             if msg != "OK":
@@ -147,7 +157,7 @@ class Session:
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.connect(("127.0.0.1", self.port))
-            s.send(b"get=" + valueName.encode() + self._data_end_char)
+            s.send(b"get=" + valueName.replace(self._data_end_str, "").encode() + self._data_end_char)
             self._buffer.sock = s
             msg = self._buffer.read_all()
             if msg is None:
@@ -228,4 +238,55 @@ class Session:
 
 
 
+
+class DataScope():
+    __loop__ = asyncio.get_event_loop()
+    if not __loop__.is_running():
+        threading.Thread(target=__loop__.run_forever, daemon=True).start()
+    __pool__ = ThreadPoolExecutor(max_workers=None)
+
+
+    def __init__(self, varName: str, session: Session, update_interval=2.0):
+        self._varName = varName
+        self._session = session
+        self.update_interval = 2.0
+
+        self._value = None
+        self._enabled = False
+
+        self._loop = asyncio.get_event_loop()
+        self.i = 0
+
+    @property
+    def value(self):
+        return self._value
+
+    @property
+    def valueName(self):
+        return self._varName
+
+
+    def StartScope(self):
+        if self._enabled:
+            return
+        self._enabled = True
+        asyncio.run_coroutine_threadsafe(self._data_communicate(), DataScope.__loop__)
+
+
+    def StopScope(self):
+        self._enabled = False
+
+
+    async def _data_communicate(self):
+        while self._enabled:
+            try:
+                await asyncio.gather(self._sleep_task(), self._value_com_task())
+            except Exception as error:
+                print(repr(error))
+
+    async def _sleep_task(self):
+        await asyncio.sleep(self.update_interval)
+
+    async def _value_com_task(self):
+        self._value = self._session.get_value(self._varName)
 

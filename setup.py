@@ -6,7 +6,7 @@ with open(path.join(this_directory, 'README.md'), encoding="utf-8") as f:
 
 setuptools.setup(
     name="lv-linkpy",
-    version="1.0.1",
+    version="1.0.3",
     description="a python interface to remote LabVIEW controls",
     author="ZHUO DIAO",
     author_email="enzian0515@gmail.com",

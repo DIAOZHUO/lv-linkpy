@@ -1,3 +1,3 @@
-from lvlinkpy.lvlinkpy import Session
+from lvlinkpy.lvlinkpy import Session, DataScope
 
 
